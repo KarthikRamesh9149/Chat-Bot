@@ -116,7 +116,7 @@ def load_faq_data(file_path):
         return json.load(file)
 
 # Updated file path
-faq_data = load_faq_data(r'C:\Users\uig83773\Desktop\Software Testing Bot using LLM\FinalDataset.json')
+faq_data = load_faq_data('FinalDataset.json')
 
 # Extract questions from JSON data
 questions = [item['question'] for item in faq_data]
@@ -168,7 +168,7 @@ def generate_response(closest_match):
 
 # Function to display the image using the provided images folder path
 def display_image(image_name):
-    image_path = os.path.join(r'C:\Users\uig83773\Desktop\Software Testing Bot using LLM\Images', image_name)
+    image_path = os.path.join('images', image_name)
     if os.path.exists(image_path):
         img = Image.open(image_path)
         st.image(img, use_column_width=True)
