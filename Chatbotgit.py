@@ -16,11 +16,9 @@ st.set_page_config(page_title="Software Testing FAQ Chatbot", page_icon="🟠", 
 # Custom CSS for improved button responsiveness and consistent answer background styling
 st.markdown("""
     <style>
-    /* Main background color */
     .main {
         background-color: #F5F5DC;
     }
-    /* Bot chatbox styling */
     .chatbox.bot {
         background-color: #FFA500;
         color: #000000;
@@ -30,7 +28,6 @@ st.markdown("""
         font-family: 'Helvetica', 'Arial', sans-serif;
         font-weight: 600;
     }
-    /* User chatbox styling */
     .chatbox.user {
         background-color: #333333;
         color: #FFFFFF;
@@ -41,7 +38,6 @@ st.markdown("""
         font-family: 'Helvetica', 'Arial', sans-serif;
         font-weight: 600;
     }
-    /* Button styling */
     .stButton>button {
         background-color: #FFA500;
         color: #000000;
@@ -53,20 +49,17 @@ st.markdown("""
         font-weight: 600;
         transition: background-color 0.3s ease, transform 0.2s;
     }
-    /* Button hover effect for smoother experience */
     .stButton>button:hover {
         background-color: #FFA500;
         transform: scale(1.05);
         cursor: pointer;
     }
-    /* Answer chosen background styling */
     .answer-chosen {
         background-color: #FFA500;
         padding: 5px 10px;
         border-radius: 8px;
         color: #000000;
     }
-    /* Spinner animation styling */
     .spinner {
         border: 4px solid #f3f3f3;
         border-top: 4px solid #FFA500;
@@ -80,14 +73,12 @@ st.markdown("""
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
     }
-    /* Typing indicator styling */
     .typing-indicator {
         color: #000000;
         font-style: italic;
         font-family: 'Helvetica', 'Arial', sans-serif;
         font-weight: 600;
     }
-    /* Custom dropdown styling */
     .suggestion-dropdown {
         background-color: white;
         border: 1px solid #ddd;
@@ -115,26 +106,30 @@ def load_faq_data(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         return json.load(file)
 
-# Updated file path
 faq_data = load_faq_data('FinalDataset.json')
 
-# Extract questions from JSON data
 questions = [item['question'] for item in faq_data]
 question_embeddings = SentenceTransformer('all-MiniLM-L6-v2').encode(questions, convert_to_tensor=True)
 
-# Load Models
-generator = AutoModelForCausalLM.from_pretrained('gpt2')
-generator_tokenizer = AutoTokenizer.from_pretrained('gpt2')
+# Lazy load GPT-2 model (Optimized to distilGPT-2 for memory efficiency)
+@st.cache_resource
+def load_generator():
+    return AutoModelForCausalLM.from_pretrained('distilgpt2'), AutoTokenizer.from_pretrained('distilgpt2')
 
-# Sentiment Analysis Model
-sentiment_analyzer = pipeline('sentiment-analysis', model='nlptown/bert-base-multilingual-uncased-sentiment')
+# Lazy load sentiment analysis model (distilBERT for lighter model)
+@st.cache_resource
+def load_sentiment_analyzer():
+    return pipeline('sentiment-analysis', model='distilbert-base-uncased')
 
-# Load Intent Recognition Model
-intent_model_name = "bhadresh-savani/bert-base-uncased-emotion"
-intent_tokenizer = AutoTokenizer.from_pretrained(intent_model_name)
-intent_model = AutoModelForSequenceClassification.from_pretrained(intent_model_name)
+# Lazy load intent recognition model (Optimized to smaller BERT variant)
+@st.cache_resource
+def load_intent_recognition_model():
+    model_name = "bhadresh-savani/distilbert-base-uncased-emotion"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name)
+    return model, tokenizer
 
-# Initialize conversation history and state using Streamlit's session state
+# Initialize conversation history and state
 if "conversation_history" not in st.session_state:
     st.session_state.conversation_history = []
 if "selected_suggestion" not in st.session_state:
@@ -156,7 +151,7 @@ def format_answer(brief, detailed):
     
     return formatted_brief, formatted_detailed
 
-# Function to generate a response
+# Generate response based on the closest match
 def generate_response(closest_match):
     formatted_brief, formatted_detailed = format_answer(closest_match['brief_answer'], closest_match['detailed_answer'])
     return {
@@ -166,7 +161,7 @@ def generate_response(closest_match):
         "image": closest_match['image']
     }
 
-# Function to display the image using the provided images folder path
+# Display image
 def display_image(image_name):
     image_path = os.path.join('images', image_name)
     if os.path.exists(image_path):
@@ -175,14 +170,13 @@ def display_image(image_name):
     else:
         st.warning(f"⚠️ Image {image_name} not found.")
 
-# Enhanced function to recognize intent using a BERT-based model
+# Recognize user intent using optimized BERT model
 def recognize_intent(user_input):
     greetings = ["hi", "hello", "hey", "howdy", "greetings", "good morning", "good afternoon", "good evening"]
     greeting_phrases = ["how are you", "what's up", "how's it going"]
     
     lower_input = user_input.lower()
 
-    # Prioritize detecting FAQ-related queries over greetings
     faq_keywords = [
         "what is", "how do", "explain", "describe", "why", "when", "difference between", "discuss", "technique",
         "types of", "purpose of", "importance of", "how to ensure", "key elements of", "role of", 
@@ -194,34 +188,27 @@ def recognize_intent(user_input):
     if any(keyword in lower_input for keyword in faq_keywords):
         return "faq_query"
 
-    # Check for greetings if no FAQ-related keywords are detected
     if any(greeting in lower_input for greeting in greetings) or any(phrase in lower_input for phrase in greeting_phrases):
         return "greeting"
     
-    # Default to FAQ query if no greeting keywords detected
     return "faq_query"
 
-# Function to handle greeting and casual conversation
+# Handle greeting responses
 def handle_greeting(user_input):
     return "Hello! How can I assist you today with your software testing questions?"
 
-# Improved real-time suggestion function for FAQ questions using exact phrase matching and cosine similarity
+# Suggest FAQ questions using cosine similarity and phrase matching
 def suggest_questions(user_input):
     user_intent = recognize_intent(user_input)
     
     if user_intent == "greeting":
         return []
 
-    # Extract the first 3-4 words from the user input
     first_words = " ".join(user_input.lower().split()[:4])
-
-    # Try to find questions that start with these words
     matching_questions = [q for q in questions if q.lower().startswith(first_words)]
     
-    # Combine exact matches with additional relevant suggestions
     suggestions = matching_questions[:5]
     
-    # If we have fewer than 4-5 suggestions, supplement with cosine similarity results
     if len(suggestions) < 4:
         user_input_embedding = SentenceTransformer('all-MiniLM-L6-v2').encode([user_input], convert_to_tensor=True)
         similarities = cosine_similarity(user_input_embedding, question_embeddings)
@@ -232,7 +219,7 @@ def suggest_questions(user_input):
     
     return suggestions
 
-# Main chatbot interaction with multi-turn handling, typing animation, and spinner
+# Main chatbot interaction
 def chatbot():
     st.markdown("<div class='chatbox bot'>Hi! I'm your Software Testing Chatbot.</div>", unsafe_allow_html=True)
 
@@ -253,7 +240,6 @@ def chatbot():
                     st.markdown("❌ Sorry, I couldn't find a close match for your question. Please try rephrasing or ask a different question.")
                     return
 
-                # Show typing indicator before displaying the answer
                 with st.spinner("Bot is typing..."):
                     time.sleep(1.5)
 
@@ -277,21 +263,18 @@ def chatbot():
                 display_image(response['image'])
 
     elif choice == 'Type Your Own':
-        # Real-time input capture
         user_input = st.text_input("🔍 Start typing your question:", key="user_input")
 
-        # Real-time suggestions
         if user_input:
             suggestions = suggest_questions(user_input)
             if suggestions:
                 st.markdown("<div class='suggestion-dropdown'>", unsafe_allow_html=True)
                 for suggestion in suggestions:
                     if st.button(suggestion, key=suggestion):
-                        st.session_state.selected_suggestion = suggestion  # Store the selected suggestion
+                        st.session_state.selected_suggestion = suggestion  
                         break
                 st.markdown("</div>", unsafe_allow_html=True)
 
-        # Using a form to submit without an additional submit button
         with st.form("submit_form", clear_on_submit=True):
             if st.form_submit_button("Submit"):
                 if st.session_state.selected_suggestion:
@@ -306,7 +289,6 @@ def chatbot():
                     selected_question = st.selectbox("Select a question from the list:", questions[:50])
 
                     if selected_question:
-                        # Show typing indicator before displaying the answer
                         with st.spinner("Bot is typing..."):
                             time.sleep(1.5)
 
@@ -333,10 +315,8 @@ def chatbot():
                             st.markdown(f"<div class='answer-chosen'>{response['detailed_answer']}</div>", unsafe_allow_html=True)
 
                         display_image(response['image'])
-
                     return
 
-                # Show typing indicator before displaying the answer
                 with st.spinner("Bot is typing..."):
                     time.sleep(1.5)
 
@@ -374,3 +354,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
